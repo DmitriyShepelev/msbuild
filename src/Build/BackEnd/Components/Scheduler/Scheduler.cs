@@ -1962,29 +1962,29 @@ namespace Microsoft.Build.BackEnd
             emitNonErrorLogs = _ => { };
 
             ProjectIsolationMode isolateProjects = _componentHost.BuildParameters.ProjectIsolationMode;
-            var configCache = (IConfigCache) _componentHost.GetComponent(BuildComponentType.ConfigCache);
+
+            // Lazily obtain the configs since doing so is expensive.
+            var configs = new Lazy<(BuildRequestConfiguration RequestConfig, BuildRequestConfiguration ParentConfig)>(() => GetConfigurations(request));
 
             // do not check root requests as nothing depends on them
-            if (isolateProjects == ProjectIsolationMode.False || request.IsRootRequest || request.SkipStaticGraphIsolationConstraints)
+            if (isolateProjects == ProjectIsolationMode.False || request.IsRootRequest
+                || request.SkipStaticGraphIsolationConstraints || SkipNonexistentTargetsIfExistentTargetsHaveResults(request))
             {
                 bool logComment = ((isolateProjects == ProjectIsolationMode.True || isolateProjects == ProjectIsolationMode.MessageUponIsolationViolation) && request.SkipStaticGraphIsolationConstraints);
                 if (logComment)
                 {
-                    // retrieving the configs is not quite free, so avoid computing them eagerly
-                    var configs = GetConfigurations();
-
                     emitNonErrorLogs = ls => ls.LogComment(
                             NewBuildEventContext(),
                             MessageImportance.Normal,
                             "SkippedConstraintsOnRequest",
-                            configs.parentConfig.ProjectFullPath,
-                            configs.requestConfig.ProjectFullPath);
+                            configs.Value.ParentConfig.ProjectFullPath,
+                            configs.Value.RequestConfig.ProjectFullPath);
                 }
 
                 return true;
             }
 
-            var (requestConfig, parentConfig) = GetConfigurations();
+            (BuildRequestConfiguration requestConfig, BuildRequestConfiguration parentConfig) = configs.Value;
 
             // allow self references (project calling the msbuild task on itself, potentially with different global properties)
             if (parentConfig.ProjectFullPath.Equals(requestConfig.ProjectFullPath, StringComparison.OrdinalIgnoreCase))
@@ -2023,26 +2023,53 @@ namespace Microsoft.Build.BackEnd
                     BuildEventContext.InvalidTaskId);
             }
 
-            (BuildRequestConfiguration requestConfig, BuildRequestConfiguration parentConfig) GetConfigurations()
+            (BuildRequestConfiguration RequestConfig, BuildRequestConfiguration ParentConfig) GetConfigurations(BuildRequest request)
             {
-                var buildRequestConfiguration = configCache[request.ConfigurationId];
+                var configCache = (IConfigCache)_componentHost.GetComponent(BuildComponentType.ConfigCache);
+                BuildRequestConfiguration buildRequestConfiguration = configCache[request.ConfigurationId];
 
                 // Need the parent request. It might be blocked or executing; check both.
-                var parentRequest = _schedulingData.BlockedRequests.FirstOrDefault(r => r.BuildRequest.GlobalRequestId == request.ParentGlobalRequestId)
-                                    ?? _schedulingData.ExecutingRequests.FirstOrDefault(r => r.BuildRequest.GlobalRequestId == request.ParentGlobalRequestId);
+                SchedulableRequest parentRequest = _schedulingData.BlockedRequests.FirstOrDefault(r => r.BuildRequest.GlobalRequestId == request.ParentGlobalRequestId)
+                    ?? _schedulingData.ExecutingRequests.FirstOrDefault(r => r.BuildRequest.GlobalRequestId == request.ParentGlobalRequestId);
 
                 ErrorUtilities.VerifyThrowInternalNull(parentRequest, nameof(parentRequest));
                 ErrorUtilities.VerifyThrow(
                     configCache.HasConfiguration(parentRequest.BuildRequest.ConfigurationId),
                     "All non root requests should have a parent with a loaded configuration");
 
-                var parentConfiguration = configCache[parentRequest.BuildRequest.ConfigurationId];
+                BuildRequestConfiguration parentConfiguration = configCache[parentRequest.BuildRequest.ConfigurationId];
                 return (buildRequestConfiguration, parentConfiguration);
             }
 
             string ConcatenateGlobalProperties(BuildRequestConfiguration configuration)
             {
                 return string.Join("; ", configuration.GlobalProperties.Select<ProjectPropertyInstance, string>(p => $"{p.Name}={p.EvaluatedValue}"));
+            }
+
+            bool SkipNonexistentTargetsIfExistentTargetsHaveResults(BuildRequest buildRequest)
+            {
+                // Return early if the request does not skip nonexistent targets.
+                if ((buildRequest.BuildRequestDataFlags & BuildRequestDataFlags.SkipNonexistentTargets) != BuildRequestDataFlags.SkipNonexistentTargets)
+                {
+                    return false;
+                }
+
+                BuildResult requestResults = _resultsCache.GetResultsForConfiguration(buildRequest.ConfigurationId);
+
+                // Non-existing targets do not have results.
+                // We must differentiate targets that do not exist in the reference, from targets that exist but have no results.
+                // In isolated builds, cache misses from the former are accepted for requests that skip non-existing targets.
+                // Cache misses from the latter break the isolation constraint of no cache misses, even when non-existing targets get skipped.
+                foreach (string target in request.Targets)
+                {
+                    if (configs.Value.RequestConfig.ProjectTargets.Contains(target) &&
+                        (requestResults == null || !requestResults.HasResultsForTarget(target)))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
             }
         }
 

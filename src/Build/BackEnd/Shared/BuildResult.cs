@@ -117,6 +117,8 @@ namespace Microsoft.Build.Execution
 
         private string _schedulerInducedError;
 
+        private HashSet<string> _targets;
+
         /// <summary>
         /// Constructor for serialization.
         /// </summary>
@@ -228,6 +230,7 @@ namespace Microsoft.Build.Execution
             _circularDependency = result._circularDependency;
             _initialTargets = result._initialTargets;
             _defaultTargets = result._defaultTargets;
+            _targets = result._targets;
             _baseOverallResult = result.OverallResult == BuildResultCode.Success;
         }
 
@@ -244,6 +247,7 @@ namespace Microsoft.Build.Execution
             _circularDependency = result._circularDependency;
             _initialTargets = result._initialTargets;
             _defaultTargets = result._defaultTargets;
+            _targets = result._targets;
             _baseOverallResult = result.OverallResult == BuildResultCode.Success;
         }
 
@@ -433,6 +437,12 @@ namespace Microsoft.Build.Execution
             { _defaultTargets = value; }
         }
 
+        public HashSet<string> Targets
+        {
+            get => _targets;
+            set => _targets = value;
+        }
+
         /// <summary>
         /// Container used to transport errors from the scheduler (issued while computing a build result)
         /// to the TaskHost that has the proper logging context (project id, target id, task id, file location)
@@ -559,6 +569,7 @@ namespace Microsoft.Build.Execution
             translator.Translate(ref _nodeRequestId);
             translator.Translate(ref _initialTargets);
             translator.Translate(ref _defaultTargets);
+            translator.Translate(ref _targets);
             translator.Translate(ref _circularDependency);
             translator.TranslateException(ref _requestException);
             translator.TranslateDictionary(ref _resultsByTarget, TargetResult.FactoryForDeserialization, CreateTargetResultDictionary);

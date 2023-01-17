@@ -1393,7 +1393,7 @@ namespace Microsoft.Build.Execution
                 ((IBuildComponentHost) this).LoggingService,
                 request.BuildEventContext,
                 false /* loaded by solution parser*/,
-                config.TargetNames,
+                config.RequestedTargets,
                 SdkResolverService,
                 request.SubmissionId);
 
@@ -2340,15 +2340,9 @@ namespace Microsoft.Build.Execution
                 // doesn't already have entries.  This can happen if we created a configuration based on a request from
                 // an external node, but hadn't yet received a result since we may not have loaded the Project locally
                 // and thus wouldn't know what the default and initial targets were.
-                if (configuration.ProjectDefaultTargets == null)
-                {
-                    configuration.ProjectDefaultTargets = result.DefaultTargets;
-                }
-
-                if (configuration.ProjectInitialTargets == null)
-                {
-                    configuration.ProjectInitialTargets = result.InitialTargets;
-                }
+                configuration.ProjectDefaultTargets ??= result.DefaultTargets;
+                configuration.ProjectInitialTargets ??= result.InitialTargets;
+                configuration.ProjectTargets ??= result.Targets;
             }
 
             IEnumerable<ScheduleResponse> response = _scheduler.ReportResult(node, result);
