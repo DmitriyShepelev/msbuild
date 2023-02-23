@@ -129,6 +129,12 @@ namespace Microsoft.Build.BackEnd
         void Translate(ref int value);
 
         /// <summary>
+        /// Translates an unsigned integer.
+        /// </summary>
+        /// <param name="unsignedInteger">The unsigned integer to translate.</param>
+        void Translate(ref uint unsignedInteger);
+
+        /// <summary>
         /// Translates an <see langword="int"/> array.
         /// </summary>
         /// <param name="array">The array to be translated.</param>
@@ -228,6 +234,11 @@ namespace Microsoft.Build.BackEnd
         /// <param name="value">The context to be translated.</param>
         void Translate(ref BuildEventContext value);
 
+        /// <summary>
+        /// Translates a <see cref="FileAccessData"/>.
+        /// </summary>
+        /// <param name="fileAccessData">The file access to translate.</param>
+        void Translate(ref FileAccessData fileAccessData);
 #endif 
 
         /// <summary>
